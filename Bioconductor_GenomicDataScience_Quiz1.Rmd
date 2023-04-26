@@ -1,0 +1,189 @@
+---
+title: "Bioconductor_GenomicDataScience_Quiz1"
+author: "Ojaswini Pandey"
+date: "2023-04-15"
+output: html_document
+---
+
+```{r}
+
+#loading all the libraries
+
+library(IRanges)
+library(GenomicRanges)
+library(dbplyr)
+#library(BiofileCache)
+library(rtracklayer)
+library(AnnotationHub)
+library(GenomeInfoDb)
+
+
+```
+
+ 
+Q1 : Use the AnnotationHub package to obtain data on "CpG Islands" in the human genome. How many islands exists on the autosomes?
+
+```{r}
+
+#getting the record for human cpg island
+ahub = AnnotationHub()
+ahub_human = subset(ahub, species == "Homo sapiens")  
+ahub_human_cpg = query(ahub_human, "CpG Islands")
+ahub_human_cpg
+ahub_human_cpg_record = ahub_human_cpg[["AH5086"]]
+ahub_human_cpg_record
+
+#creating a filter to exract autosomes
+filter = c(paste("chr", 1:22, sep =""))
+
+#spliting the record obtatained for human cpg islands
+split_ahub_human_cpg_record = split(ahub_human_cpg_record, seqnames(ahub_human_cpg_record))
+
+#applying filter on the split record
+autosomes = split_ahub_human_cpg_record[filter]
+
+#finding the number of autosomes
+unlist(autosomes)
+
+```
+
+Q2 : How many CpG Islands exists on chromosome 4?
+
+```{r}
+autosomes[4]
+```
+
+
+Q3 : Obtain the data for the H3K4me3 histone modification for the H1 cell line from Epigenomics Roadmap, using AnnotationHub. Subset these regions to only keep regions mapped to the autosomes (chromosomes 1 to 22).
+
+```{r}
+# Obtaining the data for H3K4me3 histone modification for the H1 cell line from the Epigenomics Roadmap using AnnotationHub.
+ahub_H3K4me3 = query(ahub, c("H3K4me3", "narrowpeak", "E003"))
+ahub_H3K4me3
+
+# Retrieving the specific record
+ahub_H3K4me3_record = ahub_H3K4me3[["AH29884"]]
+ahub_H3K4me3_record
+
+# Extracting Autosomes by applying the filter created earlier
+split_ahub_H3K4me3_record = split(ahub_H3K4me3_record, seqnames(ahub_H3K4me3_record))
+autosomes_ahub_H3K4me3 = split_ahub_H3K4me3_record[filter]
+autosomes_ahub_H3K4me3
+
+#Finding the number of bases these regions cover
+sum(width(unlist(autosomes_ahub_H3K4me3)))
+
+```
+Q4 : Obtain the data for the H3K27me3 histone modification for the H1 cell line from Epigenomics Roadmap, using the AnnotationHub package. Subset these regions to only keep regions mapped to the autosomes. In the return data, each region has an associated “signalValue”. What is the mean signalValue across all regions on the standard chromosomes?
+
+```{r}
+# Obtaining the data for H3K27me3 histone modification for the H1 cell line from the Epigenomics Roadmap using AnnotationHub.
+ahub_H3K27me3 = query(ahub, c("H3K27me3", "narrowpeak", "E003"))
+ahub_H3K27me3
+
+# Retrieving the specific record
+ahub_H3K27me3_record = ahub_H3K27me3[["AH29892"]]
+ahub_H3K27me3_record
+
+# Extracting Autosomes by applying the filter created earlier
+split_ahub_H3K27me3_record = split(ahub_H3K27me3_record, seqnames(ahub_H3K27me3_record))
+autosomes_ahub_H3K27me3 = split_ahub_H3K27me3_record[filter]
+autosomes_ahub_H3K27me3
+
+# Creating a subset of autosomes
+autosomes1_ahub_H3K27me3 = subset(ahub_H3K27me3_record, seqnames %in% filter)
+
+# finding mean signal value
+mean_signalValue = mean(autosomes1_ahub_H3K27me3$signalValue)
+mean_signalValue
+
+```
+
+Q5 : Bivalent regions are bound by both H3K4me3 and H3K27me3. Using the regions we have obtained above, how many bases on the standard chromosomes are bivalently marked?
+
+```{r}
+
+# Finding the intersection between the two histone modifications for autosomes
+biValent = intersect(unlist(autosomes_ahub_H3K4me3), unlist(autosomes_ahub_H3K27me3))
+sum(width(biValent))
+
+```
+
+Q6 : We will examine the extent to which bivalent regions overlap CpG Islands. How big a fraction (expressed as a number between 0 and 1) of the bivalent regions, overlap one or more CpG Islands?
+ 
+```{r}
+# finding overlap of bivalent regions with CpG islands
+cpg_bivalent = findOverlaps(biValent, unlist(autosomes))
+cpg_bivalent
+
+# calculating the fraction of the bivalent regions overlap with CpG islands
+fraction_biValent = length(unique(queryHits(cpg_bivalent)))/length(biValent)
+fraction_biValent
+
+```
+Q7 : How big a fraction (expressed as a number between 0 and 1) of the bases which are part of CpG Islands, are also bivalent marked?
+
+```{r}
+cpg_bivalent_intersect = intersect(biValent, unlist(autosomes))
+
+#calculating the fraction of bivalent bases which are part of CpG islands
+fraction_cpg_bivalent_intersect = sum(width(reduce(cpg_bivalent_intersect)))/sum(width(unlist(autosomes)))
+fraction_cpg_bivalent_intersect
+
+```
+
+Q8 : How many bases are bivalently marked within 10kb of CpG Islands? Tip: consider using the “resize()”" function.
+
+```{r}
+cpg_10kb <- resize(unlist(autosomes), width = 20000 + width(unlist(autosomes)), fix = "center")
+cpg_10kb_bivalent <- intersect(cpg_10kb, biValent)
+sum(width(cpg_10kb_bivalent))
+
+
+```
+
+
+Q9 : 9. How big a fraction (expressed as a number between 0 and 1) of the human genome is contained in a CpG Island?
+Tip 1: the object returned by AnnotationHub contains “seqlengths”.
+Tip 2: you may encounter an integer overflow. As described in the session on R Basic Types, you can address this by converting integers to numeric before summing them, “as.numeric()”.
+
+
+```{r}
+
+# calculating human genome size
+
+chr_list = c(paste("chr", 1:22, sep=""))
+genome = keepSeqlevels(ahub_human_cpg_record, chr_list, pruning.mode = "coarse")
+genome_size = sum(as.numeric(seqlengths(genome)))
+
+# calculating the fraction of human genome which contained CpG Island
+cpg_autosomes_size = sum(as.numeric(width(unlist(autosomes))))
+cpg_autosomes_size / genome_size
+
+```
+
+
+Q10 : Compute an odds-ratio for the overlap of bivalent marks with CpG islands.
+
+```{r}
+
+# calculating InOut matrix
+overlapMat = matrix(0, ncol = 2, nrow = 2)
+colnames(overlapMat) <- c("in", "out")
+rownames(overlapMat) <- c("in", "out")
+overlapMat[1,1] <- sum(width(cpg_bivalent_intersect))
+overlapMat[1,2] <- sum(width(setdiff(biValent, unlist(autosomes))))
+overlapMat[2,1] <- sum(width(setdiff(unlist(autosomes), biValent)))
+overlapMat[2,2] <- genome_size - sum(overlapMat)
+
+# calculating odds-ratio
+oddsRatio <- overlapMat[1,1] * overlapMat[2,2] / (overlapMat[2,1] * overlapMat[1,2])
+oddsRatio
+
+
+```
+```{r}
+sessionInfo()
+```
+
+
