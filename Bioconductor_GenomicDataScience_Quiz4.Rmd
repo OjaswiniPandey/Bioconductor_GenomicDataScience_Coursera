@@ -1,0 +1,161 @@
+---
+title: "Bioconductor_GenomicDataScience_Quiz4"
+author: "Ojaswini Pandey"
+date: "2023-04-29"
+output: html_document
+---
+
+Q1 : 1. The yeastRNASeq experiment data package contains FASTQ files from an RNA seq experiment in yeast. When the package is installed, you can access one of the FASTQ files by the path given by
+library(yeastRNASeq)
+fastqFilePath <- system.file("reads", "wt_1_f.fastq.gz", package = "yeastRNASeq")
+What fraction of reads in this file has an A nucleotide in the 5th base of the read?
+
+```{r}
+BiocManager::install("ShortRead")
+BiocManager::install("yeastRNASeq")
+
+library(yeastRNASeq)
+library(ShortRead)
+library(Biostrings)
+
+fastqFilePath = system.file("reads", "wt_1_f.fastq.gz", package = "yeastRNASeq")
+reads = readFastq(fastqFilePath)
+DNAStringSet = sread(reads)
+#https://www.bioconductor.org/packages/devel/bioc/manuals/ShortRead/man/ShortRead.pdf
+#https://www.rdocumentation.org/packages/ShortRead/versions/1.30.0/topics/ShortRead-class
+
+
+consensus_matrix = consensusMatrix(DNAStringSet, as.prob=TRUE, baseOnly=TRUE)
+consensus_matrix['A', 5]
+
+```
+Q2 : This is a continuation of Question 1.
+What is the average numeric quality value of the 5th base of these reads?
+
+
+```{r}
+
+mean(as(quality(reads), "matrix")[,5])
+
+```
+Q3 : The leeBamViews experiment data package contains aligned BAM files from an RNA seq experiment in yeast (the same experiment as in Questions 1 and 2, but that is not pertinent to the question). You can access one of the BAM files by the path given by
+library(leeBamViews)
+bamFilePath <- system.file("bam", "isowt5_13e.bam", package="leeBamViews")
+
+
+These reads are short reads (36bp) and have been aligned to the genome using a standard aligner, ie. potential junctions have been ignored (this makes some sense as yeast has very few junctions and the reads are very short). A read duplicated by position is a read where at least one more read shares the same position. We will focus on the interval from 800,000 to 801,000 on yeast chromosome 13.
+
+Question: In this interval, how many reads are duplicated by position?
+
+```{r}
+BiocManager::install("leeBamViews")
+library(leeBamViews)
+bamFilePath = system.file("bam", "isowt5_13e.bam", package="leeBamViews")
+library(Rsamtools)
+
+bamFile = BamFile(bamFilePath)
+#interval from 800,000 to 801,000 on yeast chromosome 13
+gr = GRanges(seqnames = "Scchr13", ranges = IRanges(start = c(800000), end = c(801000)))
+params = ScanBamParam(which = gr, what = scanBamWhat())
+aln = scanBam(bamFile, param = params)
+
+#finding duplicates
+sum(table(aln[[1]]$pos)) - sum(table(aln[[1]]$pos) == 1)
+
+```
+Q4 : The package contains 8 BAM files in total, representing 8 different samples from 4 groups. A full list of file paths can be had as
+bpaths <- list.files(system.file("bam", package="leeBamViews"), pattern = "bam$", full=TRUE)
+An objective of the original paper was the discovery of novel transcribed regions in yeast. One such region is Scchr13:807762-808068.
+Question: What is the average number of reads across the 8 samples falling in this interval?
+
+
+
+```{r}
+bpaths = list.files(system.file("bam", package="leeBamViews"), pattern = "bam$", full=TRUE)
+
+#Novel transcribed regions
+bamView = BamViews(bpaths)
+gr_newtranscribe = GRanges(seqnames="Scchr13", ranges=IRanges(start = c(807762), end = c(808068)))
+bamRanges(bamView) = gr_newtranscribe
+
+aln_newtranscribe = scanBam(bamView)
+
+# getting sequences for each sample
+alns = lapply(aln_newtranscribe, function(xx) xx[[1]]$seq)
+
+
+# calculating the average number of reads across 8 the samples
+
+alns_len_sum = 0
+for (i in 1:length(alns)){
+  alns_len_sum = alns_len_sum + length(alns[i][[1]])
+}
+alns_len_sum / length(alns)
+
+```
+
+Q5 : In the lecture on the oligo package an ExpressionSet with 18 samples is constructed, representing normalized data from an Affymetrix gene expression microarray. The samples are divided into two groups given by the group variable.
+Question: What is the average expression across samples in the control group for the “8149273” probeset (this is a character identifier, not a row number).
+
+```{r}
+
+#installing packages and getting the libraries
+BiocManager::install("oligo")
+library(oligo)
+library(GEOquery)
+
+# getting the files
+getGEOSuppFiles("GSE38792")
+untar("GSE38792/GSE38792_RAW.tar", exdir = "GSE38792/CEL")
+
+#reading the files
+celfiles = list.files("GSE38792/CEL", full = TRUE)
+rawData = read.celfiles(celfiles)
+
+#parsing the data (phenotype data)
+#Data parsing is converting data from one format to another. Widely used for data structuring, it is generally done to make the existing, often unstructured, unreadable data more comprehensible(google search)
+filename = sampleNames(rawData)
+pData(rawData)$filename = filename
+sampleNames = sub(".*_", "", filename)
+sampleNames = sub(".CEL.gz$", "", sampleNames)
+sampleNames(rawData) = sampleNames
+pData(rawData)$group = ifelse(grepl("^OSA", sampleNames(rawData)), "OSA", "Control")
+
+# finding "8149273" probeset
+normData = rma(rawData)
+loc = match("8149273", rownames(normData))
+
+#calculating average expression in control group
+mean(exprs(normData[loc,])[1:8])
+
+```
+Q6 : Use the limma package to fit a two group comparison between the control group and the OSA group, and borrow strength across the genes using eBayes(). Include all 18 samples in the model fit.
+Question: What is the absolute value of the log foldchange (logFC) of the gene with the lowest P.value.
+
+```{r}
+library(limma)
+
+
+# using limma to fit between control group and OSA group
+normData$group = factor(normData$group)
+design = model.matrix(~normData$group)
+fit = lmFit(normData, design)
+fit = eBayes(fit)
+
+# calculating the absolute value of logFC which has lowest P.value
+abs(topTable(fit)$logFC[1])
+
+
+```
+Q7 : This is a continuation of Question 6.
+Question: How many genes are differentially expressed between the two groups at an adj.P.value cutoff of 0.05?
+
+```{r}
+fit_toptable = topTable(fit)
+de = subset(fit_toptable, adj.P.Val < 0.05)
+de
+
+```
+
+
+
